@@ -1,0 +1,101 @@
+plugins{
+    id 'base'
+}
+project.evaluationDependsOn(":rundeck")
+
+def providedTags = findProperty('dockerTags')?: ''
+
+def dockerTags = [].plus(providedTags.split(',').findAll())
+
+if (vTag != 'SNAPSHOT')
+    dockerTags << vNum && dockerTags << resolvedVersion
+else if (dockerTags.size() == 0)
+    dockerTags << vTag
+
+task ensureWar {
+    def rundeckapp = project(":rundeck")
+
+    /* A bit dirty but will allow building container between Travis stages without rebuilding the war */
+    def warFile = file(rundeckapp.war.archivePath)
+    if (! warFile.exists()) {
+        dependsOn rundeckapp.bootRepackage
+    }
+}
+
+task officialBuild {
+    dependsOn ensureWar
+
+    def outputDir = "$buildDir/tags"
+
+    outputs.dir outputDir
+
+    for (tag in dockerTags) {
+        outputs.file "$outputDir/$tag"
+    }
+
+    doLast {
+        file(outputDir).mkdir()
+
+        def rundeckapp = project(":rundeck")
+
+        copy {
+            from rundeckapp.war.archivePath
+            into "$projectDir/official/.build"
+            rename "$rundeckapp.war.archiveName", "rundeck.war"
+        }
+
+        def args = [
+            "docker",
+            "build",
+        ]
+
+        for (tag in dockerTags)
+            args << "-t=rundeck/rundeck:$tag"
+        
+        args << "."
+
+        exec {
+            workingDir "./official"
+            commandLine args
+        }
+
+        for (tag in dockerTags) {
+            file("$outputDir/$tag").createNewFile()
+        }
+        
+    }
+
+    clean {
+        delete "$projectDir/official/.build"
+    }
+}
+
+task officialPush {
+    dependsOn officialBuild
+    doLast {
+        for (tag in dockerTags) {
+            exec {
+                commandLine "docker", "push", "rundeck/rundeck:$tag"
+            }
+        }
+        
+    }
+}
+
+task buildUbuntuBase {
+    doLast {
+        exec {
+            workingDir "./ubuntu-base"
+            commandLine "docker", "build", "-t=rundeck/ubuntu-base", "."
+        }
+    }
+}
+
+task pushUbuntuBase {
+    dependsOn buildUbuntuBase
+    doLast {
+        exec {
+            commandLine "docker", "push", "rundeck/ubuntu-base"
+        }
+    }
+}

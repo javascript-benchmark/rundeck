@@ -1,0 +1,13 @@
+@import '../paper/_variables';
+
+.label{
+  &.label-default{
+    a{
+      color: $white-color;
+    }
+  }
+  &.label-white{
+    background-color: white;
+    color: black;
+  }
+}

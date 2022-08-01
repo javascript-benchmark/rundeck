@@ -1,0 +1,359 @@
+/*
+ * Copyright 2016 SimplifyOps, Inc. (http://simplifyops.com)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+buildscript {
+    dependencies {
+        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.8.4'
+    }
+}
+
+plugins {
+    id "org.dvaske.gradle.git-build-info"
+    id 'de.fuerstenau.buildconfig' version '1.1.8'
+}
+import java.text.SimpleDateFormat
+
+/**
+ * The Rundeck Core API build file
+ **/
+apply plugin: 'com.jfrog.bintray'
+evaluationDependsOn(':rundeck-storage')
+apply plugin: 'idea'
+description = 'The Rundeck Core API project'
+
+archivesBaseName = 'rundeck-core'
+defaultTasks 'clean','assemble'
+ext.rundeckToolsDependencies=''
+apply plugin: "groovy"
+configurations {
+    provided
+}
+sourceSets {
+    main { compileClasspath += configurations.provided }
+}
+
+tasks.withType(Javadoc) {
+    classpath += configurations.provided
+}
+dependencies {
+    compile group: 'com.google.protobuf', name: 'protobuf-java', version: '3.5.1'
+    compile project(":rundeck-storage:rundeck-storage-api")
+    compile project(":rundeck-storage:rundeck-storage-conf")
+    compile ('com.google.guava:guava:24.1.1-jre') {
+        exclude group:'org.codehaus.mojo', module: 'animal-sniffer-annotations'
+        exclude group:'org.checkerframework', module: 'checker-compat-qual'
+        exclude group:'com.google.errorprone', module: 'error_prone_annotations'
+        exclude group:'com.google.j2objc', module: 'j2objc-annotations'
+        exclude group:'com.google.code.findbugs', module: 'jsr305'
+    }
+    compile 'org.apache.ant:ant:1.8.3',
+        'log4j:log4j:1.2.17',
+        'commons-codec:commons-codec:1.10',
+        'commons-beanutils:commons-beanutils:1.9.3',
+        'commons-collections:commons-collections:3.2.2',
+        'commons-logging:commons-logging:1.2',
+        'commons-lang:commons-lang:2.6',
+        'org.dom4j:dom4j:2.1.1',
+        'jaxen:jaxen:1.1.6',
+        'commons-cli:commons-cli:1.0',
+        'org.apache.ant:ant-jsch:1.8.3',
+        'com.jcraft:jsch:0.1.54',
+        'com.jcraft:jsch.agentproxy.jsch:0.0.9',
+        'com.jcraft:jsch.agentproxy.sshagent:0.0.9',
+        'com.jcraft:jsch.agentproxy.usocket-jna:0.0.9',
+        'com.jcraft:jsch.agentproxy.usocket-nc:0.0.9',
+        'com.jcraft:jsch.agentproxy.connector-factory:0.0.9',
+        'com.jcraft:jsch.agentproxy.core:0.0.9',
+        'com.fasterxml.jackson.core:jackson-databind:2.8.11.2',
+        'com.fasterxml.jackson.core:jackson-core:2.8.11',
+        'com.fasterxml.jackson.core:jackson-annotations:2.8.0',
+        'org.yaml:snakeyaml:1.17',
+        'com.squareup.retrofit2:retrofit:2.2.0',
+        'com.squareup.retrofit2:converter-jackson:2.2.0'
+
+
+    compile ('commons-httpclient:commons-httpclient:3.0.1') {
+        exclude group:'junit', module: 'junit'
+    }
+    provided "org.projectlombok:lombok:1.16.16"
+    testCompile 'junit:junit:4.8.1',
+        'org.mockito:mockito-all:1.8.5'
+
+    testCompile "org.codehaus.groovy:groovy-all:${groovyVersion}"
+    testCompile "org.spockframework:spock-core:0.7-groovy-2.0"
+    testCompile "com.squareup.retrofit2:retrofit-mock:2.2.0"
+    testCompile "cglib:cglib-nodep:2.2.2"
+
+}
+buildConfig {
+    clsName = 'BuildConfig'
+    packageName = project.group + '.meta'
+    charset = 'UTF-8'
+    appName = project.name
+    version = project.version
+    buildConfigField 'String', 'GIT_COMMIT', {
+        project.gitCommit
+    }
+    buildConfigField 'String', 'GIT_BRANCH', {
+        project.gitBranch
+    }
+    buildConfigField 'String', 'GIT_DESCRIPTION', {
+        project.gitDescribeInfo
+    }
+    buildConfigField 'String', 'BUILD_DATE', {
+        new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX").format(new Date())
+    }
+    buildConfigField 'String', 'BUILD_NUM', buildNum
+    buildConfigField 'String', 'BUILD_IDENT', (version + '-' + buildNum)
+
+}
+
+task gitInfo {
+    doLast {
+        println "HEAD:     $project.gitHead"
+        println "Describe: $project.gitDescribeInfo"
+        println "Commit:   $project.gitCommit"
+        println "Branch:   $project.gitBranch"
+        println "Remote:   $project.gitRemote"
+    }
+}
+
+jar.doFirst {
+    manifest {
+        attributes 'Rundeck-Version': version,
+                   'Rundeck-Tools-Dependencies': configurations.runtime.files.collect { "$it.name" }.join(" ")
+                   
+    }
+}
+
+def expandTemplate = {
+    ant.delete(file:"$projectDir/src/main/resources/META-INF/com/dtolabs/rundeck/core/application.properties")
+    def datestring = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX").format(new Date())
+    println("Building: $version-$buildNum ($datestring)")
+    copy{
+        expand('version':version,'version_build':buildNum,'version_ident':version+'-'+buildNum,date:datestring)
+        from "$projectDir/src/main/meta/com/dtolabs/rundeck/core/application.properties"
+        into "$projectDir/src/main/resources/META-INF/com/dtolabs/rundeck/core/"
+    }
+}
+
+
+compileJava.doFirst {
+        expandTemplate()
+}
+
+test{
+    systemProperties 'rdeck.base': "$projectDir/build/rdeck_base"
+}
+
+assemble {
+    doLast{
+        //copy libs to a tools lib dir
+        ant.mkdir(dir:"$projectDir/build/tools/lib")
+        configurations.runtime.files.each { file ->
+            copy{
+                from file
+                into "$projectDir/build/tools/lib"
+            }
+        }
+    }
+}
+
+// make sure that we've rebuilt and assembled before install
+install.dependsOn(build)
+
+//build a pom we reuse for both maven builds and release to sonatype
+def buildpom={deps->
+    pom {
+    project {
+        artifactId archivesBaseName
+        groupId project.group
+        inceptionYear '2011'
+        packaging 'jar'
+        version version
+        name "Rundeck Core"
+        description "Core library for the Rundeck web console for command dispatching and job scheduling"
+        url 'http://rundeck.org'
+        licenses {
+            license {
+                name 'The Apache Software License, Version 2.0'
+                url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                distribution 'repo'
+            }
+        }
+        properties{
+            'version'(version)
+            'version_build'(buildNum)
+            'version_ident'(version+'-'+buildNum)
+        }
+        scm {
+            url 'https://github.com/dtolabs/rundeck'
+            connection 'scm:git:git@github.com/dtolabs/rundeck.git'
+            developerConnection 'scm:git:git@github.com:dtolabs/rundeck.git'
+        }
+        developers {
+          developer {
+            id('gschueler')
+            name('Greg Schueler')
+            email('greg@dtosolutions.com')
+          }
+        }
+        parent {
+            groupId('org.sonatype.oss')
+            artifactId('oss-parent')
+            version('7')
+        }
+        build {
+            resources{
+                resource{
+                    directory 'src/main/meta'
+                    targetPath 'META-INF'
+                    filtering=true
+                }
+                resource{
+                    directory 'src/main/resources'
+                }
+            }
+            plugins{
+                plugin() {
+                  groupId('org.apache.maven.plugins')
+                  artifactId('maven-source-plugin')
+                  executions() {
+                    execution() {
+                      id('attach-sources')
+                      goals() {
+                        goal('jar')
+                      }
+                    }
+                  }
+                }
+                plugin() {
+                  groupId('org.apache.maven.plugins')
+                  artifactId('maven-javadoc-plugin')
+                  version('2.8')
+                  configuration() {
+                    docletArtifact() {
+                      groupId('com.google.doclava')
+                      artifactId('doclava')
+                      version('1.0.3')
+                    }
+                    doclet('com.google.doclava.Doclava')
+                    /* bootclasspath required by Sun's JVM */
+                    bootclasspath('${sun.boot.class.path}')
+                    additionalparam('''-quiet
+                             -federate JDK http://download.oracle.com/javase/6/docs/api/index.html?
+                             -federationxml JDK http://doclava.googlecode.com/svn/static/api/openjdk-6.xml
+                             -hdf project.name "${project.name}"
+                             -d .
+                             -hide 101
+                             -proofread ./proof-read.txt''')
+                    useStandardDocletOptions('false')
+                    /* Apple's JVM sometimes requires more memory */
+                    additionalJOption('-J-Xmx1024m')
+                  }
+                  executions() {
+                    execution() {
+                      id('attach-javadoc')
+                      goals() {
+                        goal('jar')
+                      }
+                    }
+                  }
+                }
+                plugin{
+                    groupId 'org.apache.maven.plugins'
+                    artifactId 'maven-compiler-plugin'
+                    version '2.3.2'
+                    configuration{
+                        'source'('1.7')
+                        'target'('1.7')
+                    }
+                }
+                plugin{
+                    groupId 'org.apache.maven.plugins'
+                    artifactId 'maven-surefire-plugin'
+                    version '2.10'
+                    configuration{
+                        systemPropertyVariables{
+                            'rdeck.base'('${project.build.directory}/rdeck_base')
+                        }
+                        redirectTestOutputToFile 'true'
+                    }
+                }
+                plugin{
+                    groupId 'org.apache.maven.plugins'
+                    artifactId 'maven-jar-plugin'
+                    version '2.3.2'
+                    configuration{
+                        archive{
+                          manifestEntries{
+                            'Rundeck-Version'(version)
+                            'Rundeck-Tools-Dependencies'(deps)
+                          }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+}
+
+task('createPom').doLast {
+    buildpom(rundeckToolsDependencies).writeTo("pom.xml")
+}
+
+bintray {
+    user = findProperty("bintrayUser")
+    key = findProperty("bintrayApiKey")
+    publish = true
+    dryRun = (findProperty('dryRun') ?: 'true').toBoolean()
+
+    if (findProperty('bintrayUseExisting')) {
+        filesSpec {
+            from "$artifactDir/core/build/libs"
+            from "$artifactDir/core/build/poms"
+            into "${project.group}.rundeck-${project.name}".replace('.', '/') + "/$version"
+            rename { file ->
+                if (file =~ /^pom/)
+                    return "rundeck-$project.name-${version}.pom"
+                else
+                    return file
+            }
+        }
+    } else {
+        configurations =  ['archives']
+    }
+
+    pkg {
+        repo = 'maven'
+        name = archivesBaseName
+        userOrg = 'rundeck'
+
+        version {
+            // mavenCentralSync {
+            //     sync = true //[Default: true] Determines whether to sync the version to Maven Central.
+            //     user = findProperty('ossUserToken') //OSS user token: mandatory
+            //     password = findProperty('ossUserPassword') //OSS user password: mandatory
+            // }
+
+            gpg {
+                sign = true //Determines whether to GPG sign the files. The default is false
+                passphrase = findProperty('signingPassword') //Optional. The passphrase for GPG signing'
+            }
+        }
+    }
+}
