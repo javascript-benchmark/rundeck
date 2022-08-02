@@ -16,7 +16,7 @@
     "uiv": "^0.27.0",
     "vue": "^2.5.2",
     "vue-cookies": "^1.5.6",
-    "vue2-filters": "^0.3.0"
+    "vue2-filters": "^0.14.0"
   },
   "devDependencies": {
     "autoprefixer": "^7.1.2",
